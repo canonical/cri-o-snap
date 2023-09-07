@@ -1,0 +1,42 @@
+name: cri-o
+version: latest
+summary: cri-o runtime
+description: |-
+  Lightweight container runtime for Kubernetes
+license: Apache-2.0
+grade: stable
+confinement: classic
+base: core20
+
+parts:
+  build-deps:
+    plugin: nil
+    build-packages:
+      - pkg-config
+
+  libmnl:
+    after: [build-deps]
+    plugin: autotools
+    source: https://www.netfilter.org/pub/libmnl/libmnl-1.0.4.tar.bz2
+
+  libnftnl:
+    after: [libmnl]
+    plugin: autotools
+    source: https://www.netfilter.org/projects/libnftnl/files/libnftnl-1.1.8.tar.bz2
+    build-environment:
+      - LIBMNL_LIBS: $SNAPCRAFT_STAGE/usr/lib
+
+  iptables:
+    after: [libnftnl]
+    source: https://www.netfilter.org/projects/iptables/files/iptables-1.8.6.tar.bz2
+    plugin: autotools
+    build-environment:
+      - LIBMNL_LIBS: $SNAPCRAFT_STAGE/usr/lib
+      - LIBNFTNL_LIBS: $SNAPCRAFT_STAGE/usr/lib
+    autotools-configure-parameters:
+      - "--prefix=/usr"
+      - "--exec-prefix=/"
+      - "--disable-shared"
+      - "--enable-static"
+    prime:
+      - -bin/iptables-xml
