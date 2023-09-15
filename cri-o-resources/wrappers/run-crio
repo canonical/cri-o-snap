@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -ex
+
+# Why we put the /snap/cri-o/current in the path?
+# crio needs to call runc. As the snap refreshes runc changes location, 
+# eg moves from # /snap/cri-o/123/usr/bin/runc to /snap/cri-o/124/usr/runc.
+# crio needs to look for runc in  /snap/cri-o/current/usr/bin/runc
+SNAP_CURRENT=`echo "${SNAP}" | sed -e "s,${SNAP_REVISION},current,"`
+CURRENT_PATH="$SNAP_CURRENT/usr/local/sbin:$SNAP_CURRENT/usr/local/bin:$SNAP_CURRENT/usr/sbin:$SNAP_CURRENT/usr/bin:$SNAP_CURRENT/sbin:$SNAP_CURRENT/bin"
+export PATH="$SNAP/usr/local/sbin:$SNAP/usr/local/bin:$SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$CURRENT_PATH:$PATH"
+ARCH="$($SNAP/bin/uname -m)"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$SNAP/lib:$SNAP/usr/lib:$SNAP/usr/local/lib:$SNAP/lib/$ARCH-linux-gnu:$SNAP/usr/lib/$ARCH-linux-gnu"
+export LD_LIBRARY_PATH=$SNAP_LIBRARY_PATH:$LD_LIBRARY_PATH
+export XDG_RUNTIME_DIR="${SNAP_COMMON}/run"
+mkdir -p "${XDG_RUNTIME_DIR}"
+
+mkdir -p /var/lib/crio
+
+app=crio
+exec "$SNAP/usr/local/bin/$app"

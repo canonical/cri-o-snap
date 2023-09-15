@@ -20,6 +20,8 @@ parts:
       - libseccomp-dev
       - libgpgme-dev
       - libglib2.0-dev
+    stage-packages:
+      - coreutils
 
   libnftnl:
     after: [build-deps]
@@ -62,7 +64,14 @@ parts:
     source: https://github.com/containers/conmon.git
     source-tag: v2.1.8
 
+  wrappers:
+    plugin: dump
+    source: cri-o-resources/wrappers
+    organize:
+      '*' : bin/
+
 apps:
-  crio:
-    command: usr/local/bin/crio
-    daemon: simple
+  daemon-crio:
+    command: bin/run-crio
+    daemon: notify
+    stop-mode: sighup
