@@ -18,13 +18,25 @@ jobs:
           sudo lxd init --auto
           sudo usermod --append --groups lxd $USER
           sg lxd -c 'lxc version'
-      - name: Install snapcraft
-        run: |
-          sudo snap install snapcraft --classic
       - name: Install snapd from candidate
         run: |
           sudo snap refresh snapd --channel=latest/stable
-      - name: Build snap
+      - name: Get cached snap
+        id: cache-crio-snap
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-crio-snap
+        with:
+          path: cri-o.snap
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('snap/snapcraft.yaml', 'cri-o-resources/*') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+      - if: ${{ steps.cache-crio-snap.outputs.cache-hit != 'true' }}
+        name: Install snapcraft
+        run: |
+          sudo snap install snapcraft --classic
+      - if: ${{ steps.cache-crio-snap.outputs.cache-hit != 'true' }}
+        name: Build snap
         run: |
           sg lxd -c 'snapcraft --use-lxd'
           sudo mv cri-o*.snap cri-o.snap
@@ -33,3 +45,71 @@ jobs:
         with:
           name: cri-o.snap
           path: cri-o.snap
+
+  test-crio-service:
+    name: CRI-O service integration test
+    runs-on: ubuntu-20.04
+    needs: build
+
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+      - name: Install test dependencies
+        run: |
+          set -x
+          sudo apt-get install --yes python3-setuptools containernetworking-plugins wget
+          sudo pip3 install --upgrade pip
+          sudo pip3 install -U pytest sh requests
+          sudo snap install microk8s --classic --channel=1.28/stable
+      - name: Configure CNI
+        run: |
+          set -x
+          sudo wget https://raw.githubusercontent.com/cri-o/cri-o/main/contrib/cni/11-crio-ipv4-bridge.conflist -O /etc/cni/net.d/11-crio-ipv4-bridge.conflist
+      - name: Configure container policies
+        run: |
+          set -x
+          sudo wget https://raw.githubusercontent.com/cri-o/cri-o/main/test/policy.json -O /etc/containers/policy.json
+          sudo wget https://raw.githubusercontent.com/cri-o/cri-o/main/test/registries.conf -O /etc/containers/registries.conf
+      - name: Fetch snap
+        uses: actions/download-artifact@v3.0.2
+        with:
+          name: cri-o.snap
+          path: build
+      - name: Install cri-o
+        run: |
+          set -x
+          sudo snap install build/cri-o.snap --classic --dangerous
+          sudo snap start cri-o.daemon-crio
+      - name: Configure microk8s for cri-o
+        run: |
+          set -x
+          sudo tee /var/snap/microk8s/current/args/kubelet << 'EOF'
+          --resolv-conf=/run/systemd/resolve/resolv.conf
+          --kubeconfig=${SNAP_DATA}/credentials/kubelet.config
+          --cert-dir=${SNAP_DATA}/certs
+          --client-ca-file=${SNAP_DATA}/certs/ca.crt
+          --anonymous-auth=false
+          --root-dir=${SNAP_COMMON}/var/lib/kubelet
+          --fail-swap-on=false
+          --feature-gates=DevicePlugins=true
+          --eviction-hard="memory.available<100Mi,nodefs.available<1Gi,imagefs.available<1Gi"
+          --container-runtime-endpoint=unix:///var/run/crio/crio.sock
+          --containerd=${SNAP_COMMON}/run/containerd.sock
+          --node-labels="microk8s.io/cluster=true,node.kubernetes.io/microk8s-controlplane=microk8s-controlplane"
+          --authentication-token-webhook=true
+          --read-only-port=0
+          --cluster-domain=cluster.local
+          --cluster-dns=10.152.183.10
+          --runtime-request-timeout=10m
+          --cgroup-driver="systemd"
+          EOF
+          sudo microk8s stop
+          sudo microk8s start
+      - name: Running cri-o basic test
+        run: |
+          set -x
+          pytest -s ./tests/test-crio-runtime.py
