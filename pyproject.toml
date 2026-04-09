@@ -5,3 +5,6 @@ log_cli_level = "INFO"
 [tool.black]
 line-length = 120
 target-version = ['py39']
+
+[tool.bandit]
+exclude_dirs = [".tox", ".venv", "venv"]
